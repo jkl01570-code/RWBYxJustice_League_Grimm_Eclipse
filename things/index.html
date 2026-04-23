@@ -1,0 +1,1175 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <title>Movement Prototype — Wolves, Waves, Multi-Boss & Projectiles</title>
+    <style>
+      :root { color-scheme: dark; }
+      html, body { height: 100%; }
+      body { margin: 0; background: #111 url("forest.png") center / cover no-repeat fixed; overflow: hidden; font-family: system-ui, sans-serif; }
+
+      #square { position: absolute; width: 64px; height: 64px; border-radius: 8px; box-shadow: 0 10px 30px rgba(0,0,0,0.35); z-index: 3; }
+      #playerSprite { position: absolute; inset: 0; background-image: url("https://static.vecteezy.com/system/resources/thumbnails/055/608/076/small/balloon-dog-pixel-art-balloon-animal-icon-png.png"); background-position: center; background-repeat: no-repeat; background-size: contain; transition: transform 140ms ease, background-color 180ms ease; }
+
+      #heldWrapper { position: absolute; width: 256px; height: 256px; pointer-events: none; transform-origin: 50% 50%; z-index: 2; transition: transform 140ms ease; filter: drop-shadow(0 6px 14px rgba(0,0,0,0.45)); }
+      #heldImg { position: absolute; inset: 0; background-image: url("red2.png"); background-position: center; background-repeat: no-repeat; background-size: contain; transform-origin: 50% 50%; transition: transform 140ms ease; }
+
+      #enemies { position: absolute; inset: 0; z-index: 1; }
+      .enemy { position: absolute; pointer-events: none; width: 160px; height: 120px; }
+      .enemySprite { position: absolute; inset: 0; background-image: url("dog.png"); background-position: center; background-repeat: no-repeat; background-size: contain; filter: drop-shadow(0 10px 18px rgba(0,0,0,0.45)); transition: transform 140ms ease, background-color 180ms ease; }
+
+      .crescent { position: absolute; width: 180px; height: 180px; pointer-events: none; filter: drop-shadow(0 6px 14px rgba(0,0,0,0.65)); opacity: 0.95; z-index: 2; }
+
+      #items { position: absolute; inset: 0; z-index: 4; pointer-events: none; }
+      .item { position: absolute; display: grid; place-items: center; }
+      .heartItem { width: 32px; height: 32px; color: #ff4661; font-size: 24px; text-shadow: 0 2px 6px rgba(0,0,0,0.6); animation: float 2.2s ease-in-out infinite; }
+      .orbItem { width: 28px; height: 28px; border-radius: 50%; background: #fff; box-shadow: 0 0 16px rgba(255,255,255,0.85), 0 6px 12px rgba(0,0,0,0.5); animation: pulse 1.8s ease-in-out infinite; }
+      .redOrbItem { width: 28px; height: 28px; border-radius: 50%; background: radial-gradient(circle at 40% 40%, #ff8a80, #ff5252 60%, #c62828); box-shadow: 0 0 16px rgba(255,82,82,0.85), 0 6px 12px rgba(0,0,0,0.5); animation: pulse 1.8s ease-in-out infinite; }
+
+      #hud { position: fixed; left: 50%; top: 14px; transform: translateX(-50%); color: #ddd; font-size: 14px; padding: 8px 12px; border: 1px solid #333; border-radius: 8px; background: rgba(255,255,255,0.06); user-select: none; display: flex; align-items: center; gap: 16px; z-index: 10; }
+      #hearts { display: inline-flex; gap: 4px; line-height: 1; }
+      .heart { color: #ff4661; font-size: 18px; text-shadow: 0 2px 6px rgba(0,0,0,0.6); }
+      #waveHud { color: #bdbdbd; }
+      #damageHud { color: #ffd54f; font-weight: 600; }
+
+      #bossHud { position: fixed; left: 50%; top: 56px; transform: translateX(-50%); display: none; z-index: 10; width: min(520px, 70vw); }
+      #bossPanel { background: rgba(0,0,0,0.45); backdrop-filter: saturate(1.2) blur(4px); border: 1px solid #555; border-radius: 10px; padding: 8px 12px; color: #eee; }
+      #bossName { font-size: 13px; margin-bottom: 6px; color: #ddd; }
+      #bossBar { position: relative; width: 100%; height: 12px; background: linear-gradient(to bottom, rgba(80,80,80,0.6), rgba(60,60,60,0.6)); border-radius: 8px; overflow: hidden; }
+      #bossBarFill { position: absolute; left: 0; top: 0; height: 100%; width: 0%; background: linear-gradient(90deg, #ef5350, #d32f2f); box-shadow: 0 0 10px rgba(239,83,80,0.6); }
+
+      .overlay { position: fixed; inset: 0; display: grid; place-items: center; background: rgba(0,0,0,0.55); color: #fff; text-align: center; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; z-index: 20; }
+      .overlay .panel { background: rgba(255,255,255,0.08); border: 1px solid #666; border-radius: 12px; padding: 18px 22px; box-shadow: 0 8px 24px rgba(0,0,0,0.45); max-width: 520px; }
+      .overlay h1 { margin: 0 0 8px; font-size: 22px; }
+      .overlay p { margin: 8px 0; font-size: 14px; color: #ddd; }
+      .overlay button { margin-top: 12px; background: #fff; color: #000; border: none; font: 16px ui-monospace, monospace; padding: 10px 16px; border-radius: 8px; cursor: pointer; }
+      .overlay button:active { transform: scale(0.98); }
+
+      @keyframes hit-recoil { 0%{transform:translate(0,0)}25%{transform:translate(-7px,0)}50%{transform:translate(0,0)}75%{transform:translate(7px,0)}100%{transform:translate(0,0)} }
+      @keyframes hit-blink { 0%,50%,100%{opacity:1}25%,75%{opacity:0.35} }
+      .hit { animation: hit-recoil 160ms ease-in-out 2, hit-blink 160ms steps(2) 2; }
+
+      @keyframes fade-out { to { opacity: 0; transform: scale(0.94); } }
+      .fadeout { animation: fade-out 280ms ease-in forwards; }
+
+      .flash { outline: 3px solid #ffd54f; outline-offset: 0; box-shadow: 0 0 0 6px rgba(255,213,79,0.2); }
+
+      .damaged { background-color: crimson !important; background-blend-mode: multiply; }
+
+      .buffGlow { box-shadow: 0 0 0 4px rgba(255,255,255,0.35), 0 0 20px rgba(255,255,255,0.8); }
+
+      @keyframes float { 0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)} }
+      @keyframes pulse { 0%,100%{transform:scale(1)}50%{transform:scale(1.12)} }
+
+      .dustContainer { position: absolute; inset: 0; pointer-events: none; }
+      .dustParticle { position: absolute; width: 6px; height: 6px; border-radius: 50%; background: rgba(200,200,200,0.9); box-shadow: 0 2px 6px rgba(0,0,0,0.45); opacity: 0.95; animation: particle 800ms ease-out forwards; }
+      @keyframes particle { to { transform: translate(var(--dx), var(--dy)) scale(0.4); opacity: 0; filter: blur(2px); } }
+
+      @keyframes disintegrate { to { opacity: 0; transform: translateY(-14px) scale(0.96); filter: blur(4px) saturate(0.6); } }
+      .disintegrate { animation: disintegrate 820ms ease-out forwards; }
+
+      .boss { position: absolute; pointer-events: none; }
+      .bossSprite {
+        position: absolute; inset: 0;
+        background-position: center;
+        background-repeat: no-repeat;
+        background-size: contain;
+        filter: drop-shadow(0 14px 24px rgba(0,0,0,0.5));
+        transition: transform 140ms ease, background-color 180ms ease;
+      }
+
+      .bossOrb {
+        position: absolute; pointer-events: none;
+        width: 36px; height: 36px; border-radius: 50%;
+        background: radial-gradient(circle at 40% 40%, #c79aff, #9b63ff 60%, #5a32c9);
+        box-shadow: 0 0 16px rgba(155,99,255,0.85), 0 6px 12px rgba(0,0,0,0.5);
+        opacity: 0.95; z-index: 2;
+      }
+      .bossFireball {
+        position: absolute; pointer-events: none;
+        width: 40px; height: 40px; border-radius: 50%;
+        background: radial-gradient(circle at 40% 40%, #ffd180, #ff8f00 60%, #e65100);
+        box-shadow: 0 0 18px rgba(255,143,0,0.9), 0 6px 12px rgba(0,0,0,0.5);
+        opacity: 0.95; z-index: 2;
+      }
+
+      .bossFeatherWrap { position: absolute; pointer-events: none; width: 48px; height: 12px; z-index: 2; filter: drop-shadow(0 4px 8px rgba(0,0,0,0.55)); }
+      .featherSvg { width: 100%; height: 100%; }
+      .featherPath { fill: #000; }
+    </style>
+  </head>
+  <body>
+    <div id="square" aria-label="Player square"><div id="playerSprite"></div></div>
+    <div id="heldWrapper" aria-label="Held Object"><div id="heldImg"></div></div>
+    <div id="enemies" aria-label="Enemies"></div>
+    <div id="items" aria-label="Items"></div>
+
+    <div id="hud">
+      <div>Move: <code>W/A/S/D</code> • Slice: <code>←/→</code> • Vertical: <code>↑/↓</code> • Pause: <code>Esc</code> • Resume: <code>Space</code></div>
+      <div id="hearts" aria-label="Lives"></div>
+      <div id="waveHud">Wave -</div>
+      <div id="damageHud">Damage ×1</div>
+    </div>
+
+    <div id="bossHud">
+      <div id="bossPanel">
+        <div id="bossName">Boss</div>
+        <div id="bossBar"><div id="bossBarFill"></div></div>
+      </div>
+    </div>
+
+    <div id="startOverlay" class="overlay">
+      <div class="panel">
+        <h1>Movement Prototype</h1>
+        <p>Move with <strong>W/A/S/D</strong>. Slice with <strong>←/→</strong>. Vertical slice with <strong>↑/↓</strong>. Pause with <strong>Esc</strong>, resume with <strong>Space</strong>.</p>
+        <button id="startBtn">Start</button>
+      </div>
+    </div>
+
+    <div id="gameOverOverlay" class="overlay" style="display:none;">
+      <div class="panel">
+        <h1>Game Over</h1>
+        <p>You ran out of hearts.</p>
+        <button id="playAgainBtn">Play Again</button>
+      </div>
+    </div>
+
+    <div id="pauseOverlay" class="overlay" style="display:none;">
+      <div class="panel">
+        <h1>Paused</h1>
+        <p>Press <strong>Space</strong> to resume</p>
+      </div>
+    </div>
+
+    <script>
+      const square = document.getElementById("square");
+      const playerSprite = document.getElementById("playerSprite");
+      const heldWrapper = document.getElementById("heldWrapper");
+      const heldImg = document.getElementById("heldImg");
+      const enemiesContainer = document.getElementById("enemies");
+      const itemsContainer = document.getElementById("items");
+      const heartsEl = document.getElementById("hearts");
+      const waveHud = document.getElementById("waveHud");
+      const damageHud = document.getElementById("damageHud");
+      const startOverlay = document.getElementById("startOverlay");
+      const gameOverOverlay = document.getElementById("gameOverOverlay");
+      const pauseOverlay = document.getElementById("pauseOverlay");
+      const startBtn = document.getElementById("startBtn");
+      const playAgainBtn = document.getElementById("playAgainBtn");
+
+      const bossHud = document.getElementById("bossHud");
+      const bossNameEl = document.getElementById("bossName");
+      const bossBarFill = document.getElementById("bossBarFill");
+
+      const accel = 1400;
+      const maxSpeed = 520;
+      const damping = 2.6;
+      const deadzoneSpeed = 4;
+
+      const maxLives = 3;
+      let lives = maxLives;
+      const hitCooldownSec = 0.8;
+      let invincibleTimer = 0;
+
+      let started = false;
+      let running = false;
+      let paused = false;
+      let rafId = null;
+
+      let x = window.innerWidth / 2 - 32;
+      let y = window.innerHeight / 2 - 32;
+      const size = 64;
+      let vx = 0, vy = 0;
+      let playerFace = 1;
+
+      const heldW = 256, heldH = 256;
+
+      const swingArcDeg = 140;
+      const swingDurationMs = 520;
+      const sliceCooldownMs = 260;
+      let isSwinging = false;
+      let swingStartMs = 0;
+      let swingDir = "right";
+      let lastSliceAt = 0;
+
+      const crescents = [];
+
+      const enemyAccel = 900;
+      const enemyMaxSpeed = 380;
+      const enemyDamping = 2.2;
+      const enemySpawnMinDist = 220;
+
+      let wave = 0;
+
+      const keys = new Set();
+
+      let playerDamageMult = 1;
+
+      function updateDamageHud() {
+        const val = Number.isInteger(playerDamageMult)
+          ? playerDamageMult.toString()
+          : playerDamageMult.toFixed(2);
+        damageHud.textContent = `Damage ×${val}`;
+      }
+
+      function drawSquare() { square.style.left = `${x}px`; square.style.top  = `${y}px`; }
+
+      function drawHeld() {
+        const cx = x + size / 2;
+        const cy = y + size / 2;
+        const fx = cx - heldW / 2;
+        const fy = cy - heldH / 2;
+        heldWrapper.style.left = `${fx}px`;
+        heldWrapper.style.top  = `${fy}px`;
+      }
+
+      function clampSquareToBounds() {
+        const W = window.innerWidth, H = window.innerHeight;
+        if (x < 0) { x = 0; vx = Math.max(0, vx); }
+        if (y < 0) { y = 0; vy = Math.max(0, vy); }
+        if (x > W - size) { x = W - size; vx = Math.min(0, vx); }
+        if (y > H - size) { y = H - size; vy = Math.min(0, vy); }
+      }
+
+      function inputVector() {
+        let ix = 0, iy = 0;
+        if (keys.has("w")) iy -= 1;
+        if (keys.has("s")) iy += 1;
+        if (keys.has("a")) ix -= 1;
+        if (keys.has("d")) ix += 1;
+        const len = Math.hypot(ix, iy);
+        if (len > 0) { ix /= len; iy /= len; }
+        return { ix, iy };
+      }
+
+      function renderHearts() {
+        heartsEl.innerHTML = "";
+        for (let i = 0; i < lives; i++) {
+          const span = document.createElement("span");
+          span.className = "heart";
+          span.textContent = "♥";
+          heartsEl.appendChild(span);
+        }
+      }
+
+      function playHitAnim(el) { el.classList.add("hit"); setTimeout(() => el.classList.remove("hit"), 360); }
+      function tintDamaged(el) { el.classList.add("damaged"); setTimeout(() => el.classList.remove("damaged"), 200); }
+
+      function loseLife() {
+        if (invincibleTimer > 0 || !running) return;
+        if (lives > 0) {
+          lives = Math.max(0, lives - 1);
+          renderHearts();
+          invincibleTimer = hitCooldownSec;
+          playHitAnim(square);
+          square.classList.add("flash");
+          tintDamaged(playerSprite);
+          setTimeout(() => square.classList.remove("flash"), 140);
+          if (lives === 0) { fadeOutPlayerThenGameOver(); }
+        }
+      }
+
+      function fadeOutPlayerThenGameOver() {
+        running = false;
+        paused = false;
+        pauseOverlay.style.display = "none";
+        square.classList.add("fadeout");
+        setTimeout(() => { gameOver(); square.classList.remove("fadeout"); }, 280);
+      }
+
+      function setHeldRight() { heldWrapper.style.transform = "rotate(-45deg)"; heldImg.style.transform = "scaleX(1)"; }
+      function setHeldLeft()  { heldWrapper.style.transform = "rotate(45deg)";  heldImg.style.transform = "scaleX(-1)"; }
+
+      function easeInOutCubic(t) { return t < 0.5 ? 4*t*t*t : 1 - Math.pow(-2*t + 2, 3) / 2; }
+
+      function startSlice(dir) {
+        const now = performance.now();
+        if (!running) return;
+        if (isSwinging) return;
+        if (now - lastSliceAt < sliceCooldownMs) return;
+        lastSliceAt = now;
+        isSwinging = true;
+        swingStartMs = now;
+        swingDir = dir;
+        if (dir === "right") { setHeldRight(); spawnCrescentHorizontal(1); }
+        else { setHeldLeft(); spawnCrescentHorizontal(-1); }
+      }
+
+      function startSliceVertical(dirY) {
+        const now = performance.now();
+        if (!running) return;
+        if (isSwinging) return;
+        if (now - lastSliceAt < sliceCooldownMs) return;
+        lastSliceAt = now;
+        isSwinging = true;
+        swingStartMs = now;
+        swingDir = dirY < 0 ? "up" : "down";
+        spawnCrescentVertical(dirY);
+      }
+
+      function spawnCrescentHorizontal(dirX) {
+        const cx = x + size / 2;
+        const cy = y + size / 2;
+        const offX = dirX > 0 ? 46 : -46;
+        const offY = -14;
+        const originX = cx + offX;
+        const originY = cy + offY;
+
+        const ns = "http://www.w3.org/2000/svg";
+        const svg = document.createElementNS(ns, "svg");
+        svg.setAttribute("viewBox", "-90 -90 180 180");
+        svg.classList.add("crescent");
+
+        const defs = document.createElementNS(ns, "defs");
+        const mask = document.createElementNS(ns, "mask");
+        const maskId = `cres-mask-${Math.random().toString(36).slice(2)}`;
+        mask.setAttribute("id", maskId);
+
+        const baseRect = document.createElementNS(ns, "rect");
+        baseRect.setAttribute("x", "-90"); baseRect.setAttribute("y", "-90");
+        baseRect.setAttribute("width", "180"); baseRect.setAttribute("height", "180");
+        baseRect.setAttribute("fill", "black");
+
+        const outer = document.createElementNS(ns, "circle");
+        outer.setAttribute("cx", "0"); outer.setAttribute("cy", "0"); outer.setAttribute("r", "70");
+        outer.setAttribute("fill", "white");
+
+        const inner = document.createElementNS(ns, "circle");
+        inner.setAttribute("cx", dirX > 0 ? "-26" : "26");
+        inner.setAttribute("cy", "0");
+        inner.setAttribute("r", "66");
+        inner.setAttribute("fill", "black");
+
+        mask.appendChild(baseRect); mask.appendChild(outer); mask.appendChild(inner);
+        defs.appendChild(mask); svg.appendChild(defs);
+
+        const cres = document.createElementNS(ns, "circle");
+        cres.setAttribute("cx", "0"); cres.setAttribute("cy", "0"); cres.setAttribute("r", "70");
+        cres.setAttribute("fill", "#ffffff");
+        cres.setAttribute("mask", `url(#${maskId})`);
+        svg.appendChild(cres);
+
+        document.body.appendChild(svg);
+        svg.style.left = `${originX - 90}px`;
+        svg.style.top  = `${originY - 90}px`;
+
+        const tilt = dirX > 0 ? -10 : 10;
+        svg.style.transform = `rotate(${tilt}deg)`;
+
+        crescents.push({ el: svg, x: originX - 90, y: originY - 90, vx: dirX * 880, vy: 0, w: 180, h: 180, traveled: 0, maxRange: 580, fading: false, opacity: 0.95, fadeTimer: 0.36, damage: 1 });
+      }
+
+      function spawnCrescentVertical(dirY) {
+        const cx = x + size / 2;
+        const cy = y + size / 2;
+        const offY = dirY < 0 ? -52 : 52;
+        const originX = cx;
+        const originY = cy + offY;
+
+        const ns = "http://www.w3.org/2000/svg";
+        const svg = document.createElementNS(ns, "svg");
+        svg.setAttribute("viewBox", "-90 -90 180 180");
+        svg.classList.add("crescent");
+
+        const defs = document.createElementNS(ns, "defs");
+        const mask = document.createElementNS(ns, "mask");
+        const maskId = `cres-mask-${Math.random().toString(36).slice(2)}`;
+        mask.setAttribute("id", maskId);
+
+        const baseRect = document.createElementNS(ns, "rect");
+        baseRect.setAttribute("x", "-90"); baseRect.setAttribute("y", "-90");
+        baseRect.setAttribute("width", "180"); baseRect.setAttribute("height", "180");
+        baseRect.setAttribute("fill", "black");
+
+        const outer = document.createElementNS(ns, "circle");
+        outer.setAttribute("cx", "0"); outer.setAttribute("cy", "0"); outer.setAttribute("r", "70");
+        outer.setAttribute("fill", "white");
+
+        const inner = document.createElementNS(ns, "circle");
+        inner.setAttribute("cx", "0");
+        inner.setAttribute("cy", dirY < 0 ? "26" : "-26");
+        inner.setAttribute("r", "66");
+        inner.setAttribute("fill", "black");
+
+        mask.appendChild(baseRect); mask.appendChild(outer); mask.appendChild(inner);
+        defs.appendChild(mask); svg.appendChild(defs);
+
+        const cres = document.createElementNS(ns, "circle");
+        cres.setAttribute("cx", "0"); cres.setAttribute("cy", "0"); cres.setAttribute("r", "70");
+        cres.setAttribute("fill", "#ffffff");
+        cres.setAttribute("mask", `url(#${maskId})`);
+        svg.appendChild(cres);
+
+        document.body.appendChild(svg);
+        svg.style.left = `${originX - 90}px`;
+        svg.style.top  = `${originY - 90}px`;
+
+        svg.style.transform = `rotate(0deg)`;
+
+        crescents.push({ el: svg, x: originX - 90, y: originY - 90, vx: 0, vy: dirY * 880, w: 180, h: 180, traveled: 0, maxRange: 520, fading: false, opacity: 0.95, fadeTimer: 0.36, damage: 1 });
+      }
+
+      function pauseGame() {
+        if (!started || paused || !running) return;
+        paused = true;
+        running = false;
+        pauseOverlay.style.display = "grid";
+      }
+
+      function resumeGame() {
+        if (!started || !paused) return;
+        paused = false;
+        running = true;
+        pauseOverlay.style.display = "none";
+      }
+
+      window.addEventListener("keydown", (e) => {
+        const k = e.key.toLowerCase();
+
+        if (e.key === "Escape") {
+          e.preventDefault();
+          pauseGame();
+          return;
+        }
+        if (e.code === "Space") {
+          e.preventDefault();
+          resumeGame();
+          return;
+        }
+
+        if (!running) return;
+
+        if (k === "w" || k === "a" || k === "s" || k === "d") { keys.add(k); e.preventDefault(); }
+        if (e.key === "ArrowRight") { e.preventDefault(); startSlice("right"); }
+        else if (e.key === "ArrowLeft") { e.preventDefault(); startSlice("left"); }
+        else if (e.key === "ArrowUp") { e.preventDefault(); startSliceVertical(-1); }
+        else if (e.key === "ArrowDown") { e.preventDefault(); startSliceVertical(1); }
+      });
+
+      window.addEventListener("keyup", (e) => {
+        const k = e.key.toLowerCase();
+        if (!running) return;
+        if (k === "w" || k === "a" || k === "s" || k === "d") { keys.delete(k); e.preventDefault(); }
+      });
+
+      window.addEventListener("resize", () => {
+        clampSquareToBounds();
+        drawSquare();
+        drawHeld();
+        for (const e of enemies) { clampEnemyToBounds(e); }
+        clampBossToBounds();
+      });
+
+      function clearArrayEls(arr) {
+        for (const it of arr) { if (it && it.el && it.el.parentNode) it.el.remove(); }
+        arr.length = 0;
+      }
+
+      function resetGame() {
+        x = window.innerWidth / 2 - 32;
+        y = window.innerHeight / 2 - 32;
+        vx = 0; vy = 0;
+        drawSquare();
+        playerFace = 1;
+        playerSprite.style.transform = "scaleX(-1)";
+        setHeldRight();
+        lives = maxLives;
+        renderHearts();
+        invincibleTimer = 0;
+        for (const c of crescents) { if (c.el && c.el.parentNode) c.el.remove(); }
+        crescents.length = 0;
+        clearEnemies();
+        clearItems();
+        clearBoss();
+        clearArrayEls(bossOrbs);
+        clearArrayEls(bossFireballs);
+        clearArrayEls(bossFeathers);
+        wave = 0;
+        waveHud.textContent = "Wave -";
+        playerDamageMult = 1;
+        square.classList.remove("buffGlow");
+        paused = false;
+        pauseOverlay.style.display = "none";
+        drawHeld();
+        refillBossCycle();
+        bossHud.style.display = "none";
+        bossNameEl.textContent = "";
+        bossBarFill.style.width = "0%";
+        updateDamageHud();
+      }
+
+      function startGame() {
+        resetGame();
+        started = true;
+        paused = false;
+        running = true;
+        startOverlay.style.display = "none";
+        gameOverOverlay.style.display = "none";
+        pauseOverlay.style.display = "none";
+        startNextWave();
+        if (!rafId) { lastTime = performance.now(); rafId = requestAnimationFrame(loop); }
+      }
+
+      function gameOver() {
+        started = false;
+        running = false;
+        paused = false;
+        pauseOverlay.style.display = "none";
+        gameOverOverlay.style.display = "grid";
+      }
+
+      let lastTime = performance.now();
+
+      const enemies = [];
+
+      function clampEnemyToBounds(e) {
+        const W = window.innerWidth, H = window.innerHeight;
+        if (e.x < 0) { e.x = 0; e.vx = Math.max(0, e.vx); }
+        if (e.y < 0) { e.y = 0; e.vy = Math.max(0, e.vy); }
+        if (e.x > W - e.w) { e.x = W - e.w; e.vx = Math.min(0, e.vx); }
+        if (e.y > H - e.h) { e.y = H - e.h; e.vy = Math.min(0, e.vy); }
+      }
+
+      function drawEnemies() {
+        for (const e of enemies) {
+          if (!e.alive) continue;
+          e.el.style.left = `${e.x}px`;
+          e.el.style.top  = `${e.y}px`;
+        }
+      }
+
+      function clearEnemies() {
+        for (const e of enemies) { if (e.el && e.el.parentNode) e.el.remove(); e.alive = false; }
+        enemies.length = 0;
+      }
+
+      function enemiesForWaveCount(w) { return ((w - 1) % 5) + 1; }
+
+      const ENEMY_W = 160;
+      const ENEMY_H = 120;
+      const ENEMY_BASE_HP = 1;
+      const ENEMY_HIT_COOLDOWN = 0.4;
+
+      function spawnOneWolf() {
+        const W = window.innerWidth, H = window.innerHeight;
+        const cx = x + size / 2, cy = y + size / 2;
+
+        let ex = Math.random() * (W - ENEMY_W);
+        let ey = Math.random() * (H - ENEMY_H);
+        for (let tries = 0; tries < 20; tries++) {
+          const candX = Math.random() * (W - ENEMY_W);
+          const candY = Math.random() * (H - ENEMY_H);
+          const dist = Math.hypot((candX + ENEMY_W/2) - cx, (candY + ENEMY_H/2) - cy);
+          if (dist >= enemySpawnMinDist) { ex = candX; ey = candY; break; }
+        }
+
+        const el = document.createElement("div");
+        el.className = "enemy";
+
+        const sprite = document.createElement("div");
+        sprite.className = "enemySprite";
+        el.appendChild(sprite);
+        enemiesContainer.appendChild(el);
+
+        const hpBonus = Math.floor((wave - 1) / 5);
+        const enemy = { el, sprite, x: ex, y: ey, vx: 0, vy: 0, w: ENEMY_W, h: ENEMY_H, alive: true, face: 1, hp: ENEMY_BASE_HP + hpBonus, invTimer: 0 };
+        el.style.left = `${ex}px`;
+        el.style.top  = `${ey}px`;
+        enemies.push(enemy);
+        return enemy;
+      }
+
+      function spawnEnemiesForWave(w) {
+        const count = enemiesForWaveCount(w);
+        for (let i = 0; i < count; i++) spawnOneWolf();
+      }
+
+      let boss = null;
+      const bossOrbs = [];
+      const bossFireballs = [];
+      const bossFeathers = [];
+
+      const BOSS_HIT_COOLDOWN = 0.4;
+
+      function clearBoss() {
+        if (boss && boss.el && boss.el.parentNode) boss.el.remove();
+        boss = null;
+      }
+
+      function clampBossToBounds() {
+        if (!boss) return;
+        const W = window.innerWidth, H = window.innerHeight;
+        if (boss.x < 0) { boss.x = 0; boss.vx = Math.max(0, boss.vx); }
+        if (boss.y < 0) { boss.y = 0; boss.vy = Math.max(0, boss.vy); }
+        if (boss.x > W - boss.w) { boss.x = W - boss.w; boss.vx = Math.min(0, boss.vx); }
+        if (boss.y > H - boss.h) { boss.y = H - boss.h; boss.vy = Math.min(0, boss.vy); }
+      }
+
+      function drawBoss() {
+        if (!boss || !boss.alive) return;
+        boss.el.style.left = `${boss.x}px`;
+        boss.el.style.top  = `${boss.y}px`;
+      }
+
+      function shuffle(a) {
+        for (let i = a.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [a[i], a[j]] = [a[j], a[i]];
+        }
+        return a;
+      }
+      let bossCycle = [];
+      function refillBossCycle() { bossCycle = shuffle([1, 2, 3]); }
+      function nextBossType() { if (bossCycle.length === 0) refillBossCycle(); return bossCycle.shift(); }
+
+      function spawnBossForWave(w) {
+        if (w % 25 !== 0) return;
+
+        const W = window.innerWidth, H = window.innerHeight;
+        const cx = x + size / 2, cy = y + size / 2;
+
+        const type = nextBossType();
+
+        let bw = 420, bh = 320, accelB = 320, maxSpeedB = 140, dampingB = 1.9;
+        let name = "Boss";
+        let spriteImg = "";
+        let shootInterval = 1.2 + (Math.random() * 0.8 - 0.4);
+        let bx = Math.random() * (W - bw), by = Math.random() * (H - bh);
+
+        if (type === 1) {
+          bw = 420; bh = 320; accelB = 320; maxSpeedB = 140; dampingB = 1.9;
+          name = "Hydra"; spriteImg = "hydra.png";
+        } else if (type === 2) {
+          bw = Math.max(360, Math.floor(Math.min(W * 0.35, 720)));
+          bh = Math.max(280, Math.floor(Math.min(H * 0.35, 560)));
+          accelB = 220; maxSpeedB = 80; dampingB = 2.2;
+          name = "Leviathan"; spriteImg = "leviathan.png";
+          shootInterval = 0.8 + (Math.random() * 0.4 - 0.2);
+        } else {
+          bw = 260; bh = 200; accelB = 200; maxSpeedB = 180; dampingB = 1.6;
+          name = "Stormbird"; spriteImg = "bird.png";
+          shootInterval = 1.0 + (Math.random() * 0.6 - 0.3);
+        }
+
+        for (let tries = 0; tries < 25; tries++) {
+          const candX = Math.random() * (W - bw);
+          const candY = Math.random() * (H - bh);
+          const dist = Math.hypot((candX + bw/2) - cx, (candY + bh/2) - cy);
+          if (dist >= (type === 2 ? 420 : 360)) { bx = candX; by = candY; break; }
+        }
+
+        const el = document.createElement("div");
+        el.className = "boss";
+        el.style.width = `${bw}px`;
+        el.style.height = `${bh}px`;
+
+        const sprite = document.createElement("div");
+        sprite.className = "bossSprite";
+        sprite.style.backgroundImage = `url("${spriteImg}")`;
+        el.appendChild(sprite);
+        enemiesContainer.appendChild(el);
+
+        const bossIndex = Math.floor(w / 25);
+        const baseHP = type === 2 ? 160 * Math.pow(2, bossIndex - 1) : 100 * Math.pow(2, bossIndex - 1);
+
+        boss = {
+          el, sprite, x: bx, y: by, vx: 0, vy: 0, w: bw, h: bh,
+          alive: true, face: 1, hp: baseHP, maxHp: baseHP, invTimer: 0,
+          shootTimer: 0, shootIntervalSec: shootInterval,
+          accel: accelB, maxSpeed: maxSpeedB, damping: dampingB,
+          type, oscT: 0, glideDir: 1, baseY: by
+        };
+        drawBoss();
+        waveHud.textContent = `Wave ${w} — ${name}`;
+        bossHud.style.display = "block";
+        bossNameEl.textContent = name;
+        bossBarFill.style.width = "100%";
+      }
+
+      function killBoss() {
+        if (!boss || !boss.alive) return;
+        boss.alive = false;
+        boss.sprite.classList.add("disintegrate");
+        createDust(boss);
+        setTimeout(() => {
+          if (boss && boss.el && boss.el.parentNode) boss.el.remove();
+          boss = null;
+          bossHud.style.display = "none";
+          bossNameEl.textContent = "";
+          bossBarFill.style.width = "0%";
+          onEnemyDefeated();
+        }, 830);
+      }
+
+      function spawnBossOrb(ax, ay, dirX, dirY) {
+        const el = document.createElement("div");
+        el.className = "bossOrb";
+        document.body.appendChild(el);
+        const w = 36, h = 36, speed = 620;
+        const len = Math.hypot(dirX, dirY) || 1;
+        const vx = (dirX / len) * speed;
+        const vy = (dirY / len) * speed;
+        const orb = { el, x: ax - w/2, y: ay - h/2, vx, vy, w, h, traveled: 0, maxRange: 640, fading: false, opacity: 0.95, fadeTimer: 0.36, removed: false };
+        el.style.left = `${orb.x}px`; el.style.top  = `${orb.y}px`;
+        bossOrbs.push(orb);
+        return orb;
+      }
+
+      function spawnBossFireball(ax, ay, dirX, dirY) {
+        const el = document.createElement("div");
+        el.className = "bossFireball";
+        document.body.appendChild(el);
+        const w = 40, h = 40, speed = 540;
+        const len = Math.hypot(dirX, dirY) || 1;
+        const vx = (dirX / len) * speed;
+        const vy = (dirY / len) * speed;
+        const ball = { el, x: ax - w/2, y: ay - h/2, vx, vy, w, h, traveled: 0, maxRange: 780, fading: false, opacity: 0.95, fadeTimer: 0.36, removed: false };
+        el.style.left = `${ball.x}px`; el.style.top  = `${ball.y}px`;
+        bossFireballs.push(ball);
+        return ball;
+      }
+
+      function spawnBossFeather(ax, ay, dirX, dirY) {
+        const wrap = document.createElement("div");
+        wrap.className = "bossFeatherWrap";
+        const svgNS = "http://www.w3.org/2000/svg";
+        const svg = document.createElementNS(svgNS, "svg");
+        svg.setAttribute("viewBox", "0 0 48 12");
+        svg.classList.add("featherSvg");
+        const path = document.createElementNS(svgNS, "path");
+        path.setAttribute("d", "M2,6 Q18,-2 46,6 Q18,14 2,6 Z");
+        path.setAttribute("class", "featherPath");
+        svg.appendChild(path);
+        wrap.appendChild(svg);
+        document.body.appendChild(wrap);
+
+        const w = 48, h = 12, speed = 640;
+        const len = Math.hypot(dirX, dirY) || 1;
+        const vx = (dirX / len) * speed;
+        const vy = (dirY / len) * speed;
+        const angle = Math.atan2(vy, vx) * 180 / Math.PI;
+
+        wrap.style.left = `${ax - w/2}px`;
+        wrap.style.top  = `${ay - h/2}px`;
+        wrap.style.transform = `rotate(${angle}deg)`;
+
+        const feather = { el: wrap, x: ax - w/2, y: ay - h/2, vx, vy, w, h, traveled: 0, maxRange: 700, fading: false, opacity: 0.95, fadeTimer: 0.36, removed: false };
+        bossFeathers.push(feather);
+        return feather;
+      }
+
+      function rotateVector(dx, dy, degrees) {
+        const rad = degrees * Math.PI / 180;
+        const cos = Math.cos(rad), sin = Math.sin(rad);
+        return { x: dx * cos - dy * sin, y: dx * sin + dy * cos };
+      }
+
+      function startNextWave() {
+        if (!running) return;
+        wave += 1;
+        waveHud.textContent = `Wave ${wave}`;
+        clearEnemies();
+        clearBoss();
+        spawnEnemiesForWave(wave);
+        spawnBossForWave(wave);
+      }
+
+      function rectsIntersect(ax, ay, aw, ah, bx, by, bw, bh) {
+        return ax < bx + bw && ax + aw > bx && ay < by + bh && ay + ah > by;
+      }
+
+      function killEnemy(e) {
+        if (!e.alive) return;
+        e.alive = false;
+        e.sprite.classList.add("disintegrate");
+        createDust(e);
+        maybeDropItems(e);
+        setTimeout(() => { if (e.el && e.el.parentNode) e.el.remove(); onEnemyDefeated(); }, 830);
+      }
+
+      function createDust(e) {
+        const container = document.createElement("div");
+        container.className = "dustContainer";
+        e.el.appendChild(container);
+        const parts = 24;
+        for (let i = 0; i < parts; i++) {
+          const p = document.createElement("div");
+          p.className = "dustParticle";
+          const px = Math.random() * (e.w - 6);
+          const py = Math.random() * (e.h - 6);
+          const dx = (Math.random() * 120 - 60);
+          const dy = (Math.random() * -90 - 10);
+          p.style.left = `${px}px`;
+          p.style.top = `${py}px`;
+          p.style.setProperty("--dx", `${dx}px`);
+          p.style.setProperty("--dy", `${dy}px`);
+          container.appendChild(p);
+        }
+      }
+
+      function onEnemyDefeated() {
+        const anyAlive = enemies.some(en => en.alive);
+        const bossAlive = boss && boss.alive;
+        if (!anyAlive && !bossAlive) startNextWave();
+      }
+
+      function maybeDropItems(e) {
+        if (Math.random() < 0.08) spawnHeart(e.x + e.w/2, e.y + e.h/2);
+        if (Math.random() < 0.02) spawnOrb(e.x + e.w/2, e.y + e.h/2);
+        if (Math.random() < 0.05) spawnRedOrb(e.x + e.w/2, e.y + e.h/2);
+      }
+
+      const items = [];
+
+      function spawnHeart(cx, cy) {
+        const el = document.createElement("div");
+        el.className = "item heartItem";
+        el.textContent = "♥";
+        itemsContainer.appendChild(el);
+        const w = 32, h = 32;
+        const item = { el, x: cx - w/2, y: cy - h/2, w, h, type: "heart", alive: true };
+        el.style.left = `${item.x}px`;
+        el.style.top = `${item.y}px`;
+        items.push(item);
+        return item;
+      }
+
+      function spawnOrb(cx, cy) {
+        const el = document.createElement("div");
+        el.className = "item orbItem";
+        itemsContainer.appendChild(el);
+        const w = 28, h = 28;
+        const item = { el, x: cx - w/2, y: cy - h/2, w, h, type: "orb", alive: true };
+        el.style.width = `${w}px`;
+        el.style.height = `${h}px`;
+        el.style.left = `${item.x}px`;
+        el.style.top = `${item.y}px`;
+        items.push(item);
+        return item;
+      }
+
+      function spawnRedOrb(cx, cy) {
+        const el = document.createElement("div");
+        el.className = "item redOrbItem";
+        itemsContainer.appendChild(el);
+        const w = 28, h = 28;
+        const item = { el, x: cx - w/2, y: cy - h/2, w, h, type: "redOrb", alive: true };
+        el.style.width = `${w}px`;
+        el.style.height = `${h}px`;
+        el.style.left = `${item.x}px`;
+        el.style.top = `${item.y}px`;
+        items.push(item);
+        return item;
+      }
+
+      function clearItems() {
+        for (const it of items) { if (it.el && it.el.parentNode) it.el.remove(); it.alive = false; }
+        items.length = 0;
+      }
+
+      function pickupItem(it) {
+        if (!it.alive) return;
+        if (it.type === "heart") {
+          if (lives < maxLives) {
+            lives = Math.min(maxLives, lives + 1);
+            renderHearts();
+            it.alive = false;
+            if (it.el && it.el.parentNode) it.el.remove();
+          }
+        } else if (it.type === "orb") {
+          playerDamageMult = playerDamageMult * 2;
+          square.classList.add("buffGlow");
+          it.alive = false;
+          if (it.el && it.el.parentNode) it.el.remove();
+          updateDamageHud();
+        } else if (it.type === "redOrb") {
+          playerDamageMult = playerDamageMult + 1;
+          square.classList.add("buffGlow");
+          it.alive = false;
+          if (it.el && it.el.parentNode) it.el.remove();
+          updateDamageHud();
+        }
+      }
+
+      function loop(now) {
+        const dt = Math.min(0.033, (now - lastTime) / 1000);
+        lastTime = now;
+
+        if (running) {
+          const { ix, iy } = inputVector();
+          vx += ix * accel * dt;
+          vy += iy * accel * dt;
+          const drag = Math.max(0, 1 - damping * dt);
+          vx *= drag; vy *= drag;
+          if (Math.abs(vx) < deadzoneSpeed) vx = 0;
+          if (Math.abs(vy) < deadzoneSpeed) vy = 0;
+          const speed = Math.hypot(vx, vy);
+          if (speed > maxSpeed) { const s = maxSpeed / speed; vx *= s; vy *= s; }
+          x += vx * dt;
+          y += vy * dt;
+          clampSquareToBounds();
+
+          const flipThreshold = 20;
+          if (!isSwinging) {
+            if (vx > flipThreshold && playerFace !== 1) { playerFace = 1; playerSprite.style.transform = "scaleX(-1)"; setHeldRight(); }
+            else if (vx < -flipThreshold && playerFace !== -1) { playerFace = -1; playerSprite.style.transform = "scaleX(1)"; setHeldLeft(); }
+          } else {
+            const t = Math.min(1, (performance.now() - swingStartMs) / swingDurationMs);
+            const eased = easeInOutCubic(t);
+            if (swingDir === "right" || swingDir === "left") {
+              const base = swingDir === "right" ? -45 : 45;
+              const sign = swingDir === "right" ? +1 : -1;
+              const ang = base + sign * swingArcDeg * eased;
+              heldWrapper.style.transform = `rotate(${ang}deg)`;
+              if (t >= 1) { isSwinging = false; if (swingDir === "right") setHeldRight(); else setHeldLeft(); }
+            } else if (swingDir === "up") {
+              const base = -90; const ang = base + 40 * eased;
+              heldWrapper.style.transform = `rotate(${ang}deg)`;
+              if (t >= 1) { isSwinging = false; if (playerFace === 1) setHeldRight(); else setHeldLeft(); }
+            } else if (swingDir === "down") {
+              const base = 90; const ang = base - 40 * eased;
+              heldWrapper.style.transform = `rotate(${ang}deg)`;
+              if (t >= 1) { isSwinging = false; if (playerFace === 1) setHeldRight(); else setHeldLeft(); }
+            }
+          }
+
+          if (invincibleTimer > 0) invincibleTimer = Math.max(0, invincibleTimer - dt);
+
+          for (const e of enemies) {
+            if (!e.alive) continue;
+            if (e.invTimer > 0) e.invTimer -= dt;
+            const ecx = e.x + e.w / 2;
+            const ecy = e.y + e.h / 2;
+            let dx = (x + size / 2) - ecx;
+            let dy = (y + size / 2) - ecy;
+            const len = Math.hypot(dx, dy) || 1;
+            dx /= len; dy /= len;
+            e.vx += dx * enemyAccel * dt;
+            e.vy += dy * enemyAccel * dt;
+            const edrag = Math.max(0, 1 - enemyDamping * dt);
+            e.vx *= edrag; e.vy *= edrag;
+            const espeed = Math.hypot(e.vx, e.vy);
+            if (espeed > enemyMaxSpeed) { const s = enemyMaxSpeed / espeed; e.vx *= s; e.vy *= s; }
+            e.x += e.vx * dt;
+            e.y += e.vy * dt;
+            clampEnemyToBounds(e);
+
+            const flipT = 20;
+            if (e.vx > flipT && e.face !== 1) { e.face = 1; e.sprite.style.transform = "scaleX(1)"; }
+            else if (e.vx < -flipT && e.face !== -1) { e.face = -1; e.sprite.style.transform = "scaleX(-1)"; }
+          }
+
+          if (boss && boss.alive) {
+            if (boss.invTimer > 0) boss.invTimer = Math.max(0, boss.invTimer - dt);
+
+            const bcx = boss.x + boss.w / 2;
+            const bcy = boss.y + boss.h / 2;
+
+            if (boss.type === 3) {
+              const W = window.innerWidth;
+              boss.oscT += dt * 1.2;
+              boss.x += boss.glideDir * boss.maxSpeed * dt;
+              const targetY = boss.baseY + Math.sin(boss.oscT) * 90;
+              boss.y += (targetY - boss.y) * 0.12;
+              if (boss.x <= 0) boss.glideDir = 1;
+              if (boss.x >= W - boss.w) boss.glideDir = -1;
+              clampBossToBounds();
+            } else {
+              let dx = (x + size / 2) - bcx;
+              let dy = (y + size / 2) - bcy;
+              const blen = Math.hypot(dx, dy) || 1;
+              dx /= blen; dy /= blen;
+
+              boss.vx += dx * boss.accel * dt;
+              boss.vy += dy * boss.accel * dt;
+
+              const bdrag = Math.max(0, 1 - boss.damping * dt);
+              boss.vx *= bdrag; boss.vy *= bdrag;
+
+              const bspeed = Math.hypot(boss.vx, boss.vy);
+              if (bspeed > boss.maxSpeed) { const s = boss.maxSpeed / bspeed; boss.vx *= s; boss.vy *= s; }
+
+              boss.x += boss.vx * dt;
+              boss.y += boss.vy * dt;
+              clampBossToBounds();
+            }
+
+            const flipT = 20;
+            if (boss.vx > flipT && boss.face !== 1) { boss.face = 1; boss.sprite.style.transform = "scaleX(1)"; }
+            else if (boss.vx < -flipT && boss.face !== -1) { boss.face = -1; boss.sprite.style.transform = "scaleX(-1)"; }
+
+            boss.shootTimer += dt;
+            if (boss.shootTimer >= boss.shootIntervalSec) {
+              boss.shootTimer = 0;
+              boss.shootIntervalSec = boss.shootIntervalSec + (Math.random() * 0.4 - 0.2);
+              const dirX = (x + size/2) - bcx;
+              const dirY = (y + size/2) - bcy;
+
+              if (boss.type === 1) {
+                const spreadDeg = 28;
+                const rPlus = rotateVector(dirX, dirY, spreadDeg);
+                const rMinus = rotateVector(dirX, dirY, -spreadDeg);
+                spawnBossOrb(bcx, bcy, dirX, dirY);
+                spawnBossOrb(bcx, bcy, rPlus.x, rPlus.y);
+                spawnBossOrb(bcx, bcy, rMinus.x, rMinus.y);
+              } else if (boss.type === 2) {
+                const base = { x: dirX, y: dirY };
+                const angles = [-8, -4, 0, 4, 8, -6, 6];
+                for (const a of angles) {
+                  const v = rotateVector(base.x, base.y, a);
+                  spawnBossFireball(bcx, bcy, v.x, v.y);
+                }
+              } else {
+                const spreads = [-30, -15, 0, 15, 30];
+                for (const a of spreads) {
+                  const v = rotateVector(dirX, dirY, a);
+                  spawnBossFeather(bcx, bcy, v.x, v.y);
+                }
+              }
+            }
+
+            const hpPct = Math.max(0, Math.min(1, boss.hp / boss.maxHp));
+            bossBarFill.style.width = `${hpPct * 100}%`;
+          }
+
+          for (const c of crescents) {
+            if (c.fading) {
+              c.fadeTimer -= dt;
+              c.opacity = Math.max(0, c.fadeTimer / 0.36);
+              c.el.style.opacity = String(c.opacity);
+              if (c.fadeTimer <= 0) { if (c.el && c.el.parentNode) c.el.remove(); c.el = null; c.removed = true; }
+            } else {
+              const dx = c.vx * dt;
+              const dy = c.vy * dt;
+              c.x += dx; c.y += dy;
+              c.traveled += Math.hypot(dx, dy);
+              if (c.traveled >= c.maxRange) c.fading = true;
+              c.el.style.left = `${c.x}px`;
+              c.el.style.top  = `${c.y}px`;
+
+              for (const e of enemies) {
+                if (!e.alive) continue;
+                if (e.invTimer > 0) continue;
+                if (rectsIntersect(c.x, c.y, c.w, c.h, e.x, e.y, e.w, e.h)) {
+                  const dmg = c.damage * playerDamageMult;
+                  e.hp = Math.max(0, e.hp - dmg);
+                  tintDamaged(e.sprite);
+                  e.invTimer = ENEMY_HIT_COOLDOWN;
+                  if (e.hp <= 0) killEnemy(e);
+                }
+              }
+
+              if (boss && boss.alive && boss.invTimer <= 0) {
+                if (rectsIntersect(c.x, c.y, c.w, c.h, boss.x, boss.y, boss.w, boss.h)) {
+                  const dmg = c.damage * playerDamageMult;
+                  boss.hp = Math.max(0, boss.hp - dmg);
+                  tintDamaged(boss.sprite);
+                  boss.invTimer = BOSS_HIT_COOLDOWN;
+                  if (boss.hp <= 0) killBoss();
+                }
+              }
+            }
+          }
+          for (let i = crescents.length - 1; i >= 0; i--) { if (crescents[i].removed) crescents.splice(i, 1); }
+
+          for (const o of bossOrbs) {
+            if (o.removed) continue;
+            if (o.fading) {
+              o.fadeTimer -= dt;
+              o.opacity = Math.max(0, o.fadeTimer / 0.36);
+              o.el.style.opacity = String(o.opacity);
+              if (o.fadeTimer <= 0) { if (o.el && o.el.parentNode) o.el.remove(); o.el = null; o.removed = true; }
+            } else {
+              const dx = o.vx * dt, dy = o.vy * dt;
+              o.x += dx; o.y += dy;
+              o.traveled += Math.hypot(dx, dy);
+              if (o.traveled >= o.maxRange) o.fading = true;
+              o.el.style.left = `${o.x}px`;
+              o.el.style.top  = `${o.y}px`;
+              if (rectsIntersect(x, y, size, size, o.x, o.y, o.w, o.h)) { loseLife(); o.fading = true; }
+            }
+          }
+          for (let i = bossOrbs.length - 1; i >= 0; i--) { if (bossOrbs[i].removed) bossOrbs.splice(i, 1); }
+
+          for (const o of bossFireballs) {
+            if (o.removed) continue;
+            if (o.fading) {
+              o.fadeTimer -= dt;
+              o.opacity = Math.max(0, o.fadeTimer / 0.36);
+              o.el.style.opacity = String(o.opacity);
+              if (o.fadeTimer <= 0) { if (o.el && o.el.parentNode) o.el.remove(); o.el = null; o.removed = true; }
+            } else {
+              const dx = o.vx * dt, dy = o.vy * dt;
+              o.x += dx; o.y += dy;
+              o.traveled += Math.hypot(dx, dy);
+              if (o.traveled >= o.maxRange) o.fading = true;
+              o.el.style.left = `${o.x}px`;
+              o.el.style.top  = `${o.y}px`;
+              if (rectsIntersect(x, y, size, size, o.x, o.y, o.w, o.h)) { loseLife(); o.fading = true; }
+            }
+          }
+          for (let i = bossFireballs.length - 1; i >= 0; i--) { if (bossFireballs[i].removed) bossFireballs.splice(i, 1); }
+
+          for (const f of bossFeathers) {
+            if (f.removed) continue;
+            if (f.fading) {
+              f.fadeTimer -= dt;
+              f.opacity = Math.max(0, f.fadeTimer / 0.36);
+              f.el.style.opacity = String(f.opacity);
+              if (f.fadeTimer <= 0) { if (f.el && f.el.parentNode) f.el.remove(); f.el = null; f.removed = true; }
+            } else {
+              const dx = f.vx * dt, dy = f.vy * dt;
+              f.x += dx; f.y += dy;
+              f.traveled += Math.hypot(dx, dy);
+              if (f.traveled >= f.maxRange) f.fading = true;
+              f.el.style.left = `${f.x}px`;
+              f.el.style.top  = `${f.y}px`;
+              if (rectsIntersect(x, y, size, size, f.x, f.y, f.w, f.h)) { loseLife(); f.fading = true; }
+            }
+          }
+          for (let i = bossFeathers.length - 1; i >= 0; i--) { if (bossFeathers[i].removed) bossFeathers.splice(i, 1); }
+
+          for (const e of enemies) {
+            if (!e.alive) continue;
+            if (rectsIntersect(x, y, size, size, e.x, e.y, e.w, e.h)) { loseLife(); }
+          }
+
+          if (boss && boss.alive) {
+            if (rectsIntersect(x, y, size, size, boss.x, boss.y, boss.w, boss.h)) { loseLife(); }
+          }
+
+          for (const it of items) {
+            if (!it.alive) continue;
+            it.el.style.left = `${it.x}px`;
+            it.el.style.top  = `${it.y}px`;
+            if (rectsIntersect(x, y, size, size, it.x, it.y, it.w, it.h)) { pickupItem(it); }
+          }
+        }
+
+        drawSquare();
+        drawHeld();
+        drawEnemies();
+        drawBoss();
+
+        rafId = requestAnimationFrame(loop);
+      }
+
+      renderHearts();
+      updateDamageHud();
+
+      startOverlay.addEventListener("click", (e) => { if (e.target.id === "startBtn") return; startGame(); });
+      startBtn.addEventListener("click", () => startGame());
+      playAgainBtn.addEventListener("click", () => startGame());
+
+window.addEventListener("keydown", (e) => {
+  if (!gameOverOverlay.style.display.includes("grid")) return;
+  if (e.code === "Space") {
+    e.preventDefault();
+    startGame();
+  }
+});
+
+
+      rafId = requestAnimationFrame(loop);
+    </script>
+  </body>
